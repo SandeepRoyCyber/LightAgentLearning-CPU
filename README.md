@@ -155,3 +155,51 @@ For model-specific benchmarking, run your normal Agent Lightning eval script wit
 - fixed context length
 and compare tokens/sec and latency across runs.
 
+
+---
+
+## 11) Build a Gemma-style *inspired* CPU student model (no GPU required)
+
+If you want a Gemma-like workflow for CPU-only experimentation, this repo now includes a tiny decoder-only distillation script:
+
+- `scripts/train_cpu_distilled_lm.py` (train + generate)
+- `scripts/smoke_test_cpu_student.sh` (quick verification)
+
+### Input format
+
+Use a JSONL file where each line includes:
+
+```json
+{"prompt":"...", "response":"..."}
+```
+
+### Train on CPU
+
+```bash
+python scripts/train_cpu_distilled_lm.py train \
+  --data /path/to/distill.jsonl \
+  --out-dir artifacts/cpu_student \
+  --steps 300 \
+  --batch-size 4 \
+  --seq-len 256 \
+  --d-model 256 \
+  --n-layers 4 \
+  --n-heads 4
+```
+
+### Generate from checkpoint
+
+```bash
+python scripts/train_cpu_distilled_lm.py generate \
+  --checkpoint artifacts/cpu_student/cpu_student_model.pt \
+  --tokenizer artifacts/cpu_student/tokenizer.json \
+  --prompt "### Prompt\nHow do I reduce CPU memory pressure?\n\n### Response\n"
+```
+
+### Smoke test
+
+```bash
+bash scripts/smoke_test_cpu_student.sh
+```
+
+> Legal note: this is a **Gemma-inspired** architecture pattern for CPU experimentation, not a reverse-engineered or weight-compatible copy of proprietary models.
