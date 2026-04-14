@@ -253,8 +253,22 @@ def train(args: argparse.Namespace) -> int:
 
 
 def generate(args: argparse.Namespace) -> int:
-    ckpt_path = Path(args.checkpoint).resolve()
-    tokenizer_path = Path(args.tokenizer).resolve()
+    model, tok, cfg = _load_model_and_tokenizer(args.checkpoint, args.tokenizer)
+    output = _sample_completion(
+        model=model,
+        tok=tok,
+        cfg=cfg,
+        prompt=args.prompt,
+        max_new_tokens=args.max_new_tokens,
+        temperature=args.temperature,
+    )
+    print(output)
+    return 0
+
+
+def _load_model_and_tokenizer(checkpoint: str, tokenizer: str) -> tuple[TinyDecoderLM, CharTokenizer, dict]:
+    ckpt_path = Path(checkpoint).resolve()
+    tokenizer_path = Path(tokenizer).resolve()
 
     tok = CharTokenizer.load(tokenizer_path)
     ckpt = torch.load(ckpt_path, map_location="cpu")
@@ -271,23 +285,68 @@ def generate(args: argparse.Namespace) -> int:
     ).cpu()
     model.load_state_dict(ckpt["model_state"])
     model.eval()
+    return model, tok, cfg
 
-    ids = tok.encode(args.prompt)
-    ids = ids[:-1]  # keep BOS + content, continue generation.
 
-    for _ in range(args.max_new_tokens):
+def _sample_completion(
+    model: TinyDecoderLM,
+    tok: CharTokenizer,
+    cfg: dict,
+    prompt: str,
+    max_new_tokens: int,
+    temperature: float,
+) -> str:
+    ids = tok.encode(prompt)
+    ids = ids[:-1]
+
+    for _ in range(max_new_tokens):
         context = ids[-cfg["seq_len"] :]
         x = torch.tensor([context], dtype=torch.long)
         with torch.no_grad():
             logits = model(x)
-        next_logits = logits[0, -1] / max(args.temperature, 1e-6)
+        next_logits = logits[0, -1] / max(temperature, 1e-6)
         probs = torch.softmax(next_logits, dim=-1)
         next_id = torch.multinomial(probs, num_samples=1).item()
         ids.append(next_id)
         if next_id == tok.eos_id:
             break
 
-    print(tok.decode(ids))
+    return tok.decode(ids)
+
+
+def chat(args: argparse.Namespace) -> int:
+    model, tok, cfg = _load_model_and_tokenizer(args.checkpoint, args.tokenizer)
+    print("CPU student CLI ready. Type '/exit' to quit.")
+    if args.system_prompt:
+        print(f"System prompt: {args.system_prompt}")
+
+    while True:
+        try:
+            user = input("you> ").strip()
+        except EOFError:
+            break
+        if not user:
+            continue
+        if user.lower() in {"/exit", "exit", "quit"}:
+            break
+
+        prompt = "### Prompt\n"
+        if args.system_prompt:
+            prompt += f"{args.system_prompt}\n"
+        prompt += f"{user}\n\n### Response\n"
+        output = _sample_completion(
+            model=model,
+            tok=tok,
+            cfg=cfg,
+            prompt=prompt,
+            max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
+        )
+        if "### Response" in output:
+            reply = output.split("### Response", 1)[1].strip()
+        else:
+            reply = output.strip()
+        print(f"model> {reply}")
     return 0
 
 
@@ -321,6 +380,13 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--max-new-tokens", type=int, default=120)
     g.add_argument("--temperature", type=float, default=0.8)
 
+    c = sub.add_parser("chat", help="Interactive CLI chat loop (CPU only)")
+    c.add_argument("--checkpoint", required=True)
+    c.add_argument("--tokenizer", required=True)
+    c.add_argument("--max-new-tokens", type=int, default=120)
+    c.add_argument("--temperature", type=float, default=0.8)
+    c.add_argument("--system-prompt", default="")
+
     return p
 
 
@@ -331,6 +397,8 @@ def main() -> int:
         return train(args)
     if args.cmd == "generate":
         return generate(args)
+    if args.cmd == "chat":
+        return chat(args)
     parser.error(f"Unsupported command: {args.cmd}")
     return 2
 
