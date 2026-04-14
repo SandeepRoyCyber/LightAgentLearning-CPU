@@ -155,3 +155,106 @@ For model-specific benchmarking, run your normal Agent Lightning eval script wit
 - fixed context length
 and compare tokens/sec and latency across runs.
 
+
+---
+
+## 11) Build a Gemma-style *inspired* CPU student model (no GPU required)
+
+If you want a Gemma-like workflow for CPU-only experimentation, this repo now includes a tiny decoder-only distillation script:
+
+- `scripts/train_cpu_distilled_lm.py` (train + generate)
+- `scripts/smoke_test_cpu_student.sh` (quick verification)
+
+### Input format
+
+Use a JSONL file where each line includes:
+
+```json
+{"prompt":"...", "response":"..."}
+```
+
+### Train on CPU
+
+```bash
+python scripts/train_cpu_distilled_lm.py train \
+  --data /path/to/distill.jsonl \
+  --out-dir artifacts/cpu_student \
+  --steps 300 \
+  --batch-size 4 \
+  --seq-len 256 \
+  --d-model 256 \
+  --n-layers 4 \
+  --n-heads 4
+```
+
+### Generate from checkpoint
+
+```bash
+python scripts/train_cpu_distilled_lm.py generate \
+  --checkpoint artifacts/cpu_student/cpu_student_model.pt \
+  --tokenizer artifacts/cpu_student/tokenizer.json \
+  --prompt "### Prompt\nHow do I reduce CPU memory pressure?\n\n### Response\n"
+```
+
+### Smoke test
+
+```bash
+bash scripts/smoke_test_cpu_student.sh
+```
+
+> Legal note: this is a **Gemma-inspired** architecture pattern for CPU experimentation, not a reverse-engineered or weight-compatible copy of proprietary models.
+
+### Core objectives
+
+The CPU student model in this repo is designed for:
+
+1. **CPU-only experimentation** on laptops/workstations with no GPU.
+2. **Distillation prototyping** from teacher-generated prompt/response pairs.
+3. **Fast local iteration** on data format, prompting style, and tiny-model behavior.
+4. **Educational reference** for decoder-only LM training and sampling loops.
+
+It is **not** intended to match full production LLM quality.
+
+### Primary use cases
+
+- Internal assistants for narrow domains (small FAQ-style tasks).
+- Prompt-template testing before moving to larger models.
+- Low-cost CI smoke tests for text generation pipelines.
+- Learning/training exercises for transformer fundamentals.
+
+### CLI usage (Ollama-like flow, but local scripts)
+
+Think of this as:
+1) train a local model artifact, then
+2) run generate/chat commands from CLI.
+
+#### Step 1: Train once
+
+```bash
+bash scripts/cpu_student_cli.sh train \
+  --data /path/to/distill.jsonl \
+  --out-dir artifacts/cpu_student \
+  --steps 300
+```
+
+#### Step 2: One-shot generation
+
+```bash
+bash scripts/cpu_student_cli.sh generate \
+  --prompt "### Prompt\nHow should I run this on CPU?\n\n### Response\n"
+```
+
+#### Step 3: Interactive CLI chat
+
+```bash
+bash scripts/cpu_student_cli.sh chat --system-prompt "You are concise and practical."
+```
+
+You can exit chat with `/exit`, `exit`, or `quit`.
+
+### How it stays CPU-friendly
+
+- Uses a small decoder-only architecture with configurable depth/width.
+- Defaults are intentionally conservative (small batches/short sequence lengths).
+- Runs on `torch` CPU tensors only.
+- Sampling/generation uses short contexts and lightweight decoding logic.
